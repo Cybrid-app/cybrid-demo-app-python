@@ -41,6 +41,7 @@ class BadResultError(ScriptError):
     pass
 
 
+STATE_CREATED = "created"
 STATE_COMPLETED = "completed"
 STATE_FAILED = "failed"
 STATE_SETTLING = "settling"
@@ -250,9 +251,9 @@ def main():
 
     verification_key_guid = Config.VERIFICATION_KEY_GUID
     verification_key = get_verification_key(api_client, verification_key_guid)
-    state = verification_key.state
-    if state != STATE_VERIFIED:
-        raise BadResultError(f"Verification key has invalid state: #{state}")
+    verification_key_state = verification_key.state
+    if verification_key_state != STATE_VERIFIED:
+        raise BadResultError(f"Verification key has invalid state: #{verification_key_state}")
 
     customer = create_customer(api_client)
     account = create_account(api_client, customer)
@@ -265,32 +266,45 @@ def main():
     )
 
     sleep_count = 0
-    state = identity_record.attestation_details.state
+    account_state = account.state
+    final_states = [STATE_CREATED]
+    while account_state not in final_states and sleep_count < Config.TIMEOUT:
+        time.sleep(1)
+        sleep_count += 1
+        account = get_account(api_client, account.guid)
+        account_state = account.state
+    if account_state != STATE_CREATED:
+        raise BadResultError(f"Account has invalid state: {account_state}")
+
+    logger.info(f"Account successfully created with state {account_state}")
+
+    sleep_count = 0
+    identity_record_state = identity_record.attestation_details.state
     final_states = [STATE_VERIFIED, STATE_FAILED]
-    while state not in final_states and sleep_count < Config.TIMEOUT:
+    while identity_record_state not in final_states and sleep_count < Config.TIMEOUT:
         time.sleep(1)
         sleep_count += 1
         identity_record = get_identity(api_client, identity_record.guid)
-        state = identity_record.attestation_details.state
-    if state != STATE_VERIFIED:
-        raise BadResultError(f"Identity record has invalid state: {state}")
+        identity_record_state = identity_record.attestation_details.state
+    if identity_record_state != STATE_VERIFIED:
+        raise BadResultError(f"Identity record has invalid state: {identity_record_state}")
 
-    logger.info(f"Identity record successfully created with state {state}")
+    logger.info(f"Identity record successfully created with state {identity_record_state}")
 
     quantity = 5 * int(1e8)
     quote = create_quote(api_client, customer, "buy", "BTC-USD", quantity)
     trade = create_trade(api_client, quote)
 
     sleep_count = 0
-    state = trade.state
+    trade_state = trade.state
     final_states = [STATE_COMPLETED, STATE_FAILED, STATE_SETTLING]
-    while state not in final_states and sleep_count < Config.TIMEOUT:
+    while trade_state not in final_states and sleep_count < Config.TIMEOUT:
         time.sleep(1)
         sleep_count += 1
         trade = get_trade(api_client, trade.guid)
-        state = trade.state
-    if state not in [STATE_COMPLETED, STATE_SETTLING]:
-        raise BadResultError(f"Trade has invalid state: {state}")
+        trade_state = trade.state
+    if trade_state not in [STATE_COMPLETED, STATE_SETTLING]:
+        raise BadResultError(f"Trade has invalid state: {trade_state}")
 
     account = get_account(api_client, account.guid)
     balance = account.platform_balance
