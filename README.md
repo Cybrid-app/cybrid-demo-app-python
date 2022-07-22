@@ -13,7 +13,6 @@ This application uses [Pipenv](https://pipenv.pypa.io/en/latest/) to install and
 $ pip install --user pipenv
 ```
 
-
 Within your local repository, you can install all of the demo application's dependencies, including the Cybrid Bank API client, by executing:
 
 ```
