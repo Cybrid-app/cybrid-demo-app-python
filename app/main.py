@@ -73,20 +73,20 @@ def create_api_client():
     return cybrid_api_bank.ApiClient(configuration)
 
 
-def get_verification_key(api_client, guid):
-    logger.info("Getting verification key...")
+def get_verification_keys(api_client):
+    logger.info("Getting verification keys...")
 
     api_instance = verification_keys_bank_api.VerificationKeysBankApi(api_client)
 
     try:
-        api_response = api_instance.get_verification_key(verification_key_guid=guid)
-        logger.info("Got verification key.")
+        api_response = api_instance.list_verification_keys()
+        logger.info("Got verification keys.")
         return api_response
     except cybrid_api_bank.ApiException as e:
-        logger.error(f"An API error occurred when getting verification key: {e}")
+        logger.error(f"An API error occurred when getting verification keys: {e}")
         raise e
     except Exception as e:
-        logger.error(f"An unknown error occurred when getting verification key: {e}")
+        logger.error(f"An unknown error occurred when getting verification keys: {e}")
         raise e
 
 
@@ -249,8 +249,7 @@ def main():
     create_logging_handler()
     api_client = create_api_client()
 
-    verification_key_guid = Config.VERIFICATION_KEY_GUID
-    verification_key = get_verification_key(api_client, verification_key_guid)
+    verification_key = get_verification_keys(api_client).objects[0]
     verification_key_state = verification_key.state
     if verification_key_state != STATE_VERIFIED:
         raise BadResultError(f"Verification key has invalid state: #{verification_key_state}")
