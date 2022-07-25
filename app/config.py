@@ -12,4 +12,3 @@ class Config:
     CLIENT_ID = os.getenv("APPLICATION_CLIENT_ID")
     CLIENT_SECRET = os.getenv("APPLICATION_CLIENT_SECRET")
     TIMEOUT = int(os.getenv("TIMEOUT", default=30))
-    VERIFICATION_KEY_GUID = os.getenv("VERIFICATION_KEY_GUID")
