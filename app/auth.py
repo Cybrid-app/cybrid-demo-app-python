@@ -11,8 +11,9 @@ CUSTOMER_SCOPES = [
     "customers:execute",
 ]
 PRICES_SCOPES = ["prices:read"]
-QUOTES_SCOPES = ["quotes:execute"]
+QUOTES_SCOPES = ["quotes:read", "quotes:execute"]
 TRADES_SCOPES = ["trades:read", "trades:execute"]
+TRANSFERS_SCOPES = ["transfers:read", "transfers:execute"]
 SCOPES = [
     *ACCOUNTS_SCOPES,
     *BANKS_SCOPES,
@@ -20,6 +21,7 @@ SCOPES = [
     *PRICES_SCOPES,
     *QUOTES_SCOPES,
     *TRADES_SCOPES,
+    *TRANSFERS_SCOPES,
 ]
 
 

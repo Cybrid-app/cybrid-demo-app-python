@@ -104,6 +104,10 @@ celerybeat.pid
 # Environments
 .env
 .venv
+demo.env
+staging.env
+sandbox.env
+production.env
 env/
 venv/
 ENV/
