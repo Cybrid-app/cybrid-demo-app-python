@@ -10,6 +10,7 @@
 # 10. Get the balance of the customer's BTC-USD trading account
 
 import logging
+import secrets
 import sys
 import time
 from cryptography.hazmat.primitives.serialization import load_pem_private_key
@@ -33,6 +34,7 @@ from cybrid_api_bank.model.post_identity_record_attestation_details import (
 from cybrid_api_bank.model.post_quote import PostQuote
 from cybrid_api_bank.model.post_trade import PostTrade
 from cybrid_api_bank.model.post_transfer import PostTransfer
+from cybrid_api_bank.model.post_one_time_address import PostOneTimeAddress
 
 from auth import get_token
 from config import Config
@@ -254,11 +256,20 @@ def create_quote(
         raise e
 
 
-def create_transfer(api_client, quote, transfer_type):
+def create_transfer(api_client, quote, transfer_type, one_time_address=None):
     logger.info(f"Creating {transfer_type} transfer...")
 
     api_instance = transfers_bank_api.TransfersBankApi(api_client)
-    post_transfer = PostTransfer(quote.guid, transfer_type)
+
+    transfer_params = {
+        "quote_guid": quote.guid,
+        "transfer_type": transfer_type,
+    }
+
+    if one_time_address is not None:
+        transfer_params["one_time_address"] = one_time_address
+
+    post_transfer = PostTransfer(**transfer_params)
 
     try:
         api_response = api_instance.create_transfer(post_transfer)
@@ -459,6 +470,44 @@ def main():
     if crypto_balance != btc_quantity:
         raise BadResultError(
             f"Account has an unexpected balance: {crypto_balance}. Should be {btc_quantity}"
+        )
+
+    logger.info(f"Account has the expected balance: {crypto_balance}")
+
+    #
+    # Transfer BTC
+    #
+
+    btc_withdrawal_quantity = 5 * int(1e4)
+    crypto_withdrawal_btc_quote = create_quote(
+        api_client,
+        customer,
+        "crypto_transfer",
+        "withdrawal",
+        btc_withdrawal_quantity,
+        asset="BTC",
+    )
+    crypto_transfer = create_transfer(
+        api_client,
+        crypto_withdrawal_btc_quote,
+        "crypto",
+        PostOneTimeAddress(
+            address=secrets.token_hex(16),
+            tag=None,
+        ),
+    )
+
+    wait_for_transfer_created(api_client, crypto_transfer)
+
+    #
+    # Check BTC balance
+    #
+
+    crypto_btc_account = get_account(api_client, crypto_btc_account.guid)
+    crypto_balance = crypto_btc_account.platform_balance
+    if crypto_balance != (btc_quantity - btc_withdrawal_quantity):
+        raise BadResultError(
+            f"Account has an unexpected balance: {crypto_balance}. Should be {btc_quantity - btc_withdrawal_quantity}"
         )
 
     logger.info(f"Account has the expected balance: {crypto_balance}")
