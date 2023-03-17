@@ -7,9 +7,7 @@ name = "pypi"
 python_version = "3.11.1"
 
 [packages]
-cryptography = "*"
 cybrid-api-bank-python = "*"
-jwcrypto = "*"
 python-dotenv = "*"
 requests = "*"
 
