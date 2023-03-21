@@ -110,6 +110,11 @@ def create_person():
                 issuing_country_code="US",
                 identification_number="669-55-0349",
             ),
+            dict(
+                type="drivers_license",
+                issuing_country_code="US",
+                identification_number="D152096714850065",
+            ),
         ],
     )
 
