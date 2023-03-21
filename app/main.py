@@ -1,5 +1,5 @@
 # 1. Create a customer
-# 2. Create an identity record for the customer
+# 2. Create an attested identity verification for the customer
 # 3. Create a USD fiat account for the customer
 # 4. Create a BTC-USD trading account for the customer
 # 5. Generate a book transfer quote in USD
@@ -13,32 +13,34 @@ import logging
 import secrets
 import sys
 import time
-from cryptography.hazmat.primitives.serialization import load_pem_private_key
+from datetime import date
 
 import cybrid_api_bank
-from cybrid_api_bank.api import (
-    accounts_bank_api,
-    customers_bank_api,
-    verification_keys_bank_api,
-    identity_records_bank_api,
-    quotes_bank_api,
-    trades_bank_api,
-    transfers_bank_api,
+from cybrid_api_bank.apis import (
+    AccountsBankApi,
+    CustomersBankApi,
+    IdentityVerificationsBankApi,
+    QuotesBankApi,
+    TradesBankApi,
+    TransfersBankApi,
 )
-from cybrid_api_bank.model.post_account import PostAccount
-from cybrid_api_bank.model.post_customer import PostCustomer
-from cybrid_api_bank.model.post_identity_record import PostIdentityRecord
-from cybrid_api_bank.model.post_identity_record_attestation_details import (
-    PostIdentityRecordAttestationDetails,
+from cybrid_api_bank.models import (
+    PostAccount,
+    PostCustomer, 
+    PostCustomerName, 
+    PostCustomerAddress, 
+    PostIdentificationNumber,
+    PostIdentityVerification,
+    PostIdentityVerificationAddress,
+    PostIdentityVerificationName,
+    PostQuote,
+    PostTrade,
+    PostTransfer,
+    PostOneTimeAddress
 )
-from cybrid_api_bank.model.post_quote import PostQuote
-from cybrid_api_bank.model.post_trade import PostTrade
-from cybrid_api_bank.model.post_transfer import PostTransfer
-from cybrid_api_bank.model.post_one_time_address import PostOneTimeAddress
 
 from auth import get_token
 from config import Config
-from util import create_jwt
 
 
 class ScriptError(Exception):
@@ -51,9 +53,8 @@ class BadResultError(ScriptError):
 
 STATE_CREATED = "created"
 STATE_COMPLETED = "completed"
-STATE_FAILED = "failed"
 STATE_SETTLING = "settling"
-STATE_VERIFIED = "verified"
+STATE_UNVERIFIED = "unverified"
 
 
 logger = logging.getLogger()
@@ -73,7 +74,7 @@ def create_logging_handler():
 def create_configuration(token):
     configuration = cybrid_api_bank.Configuration(
         access_token=token,
-        host=f"https://bank.{Config.BASE_URL}",
+        host=f"{Config.URL_SCHEME}://bank.{Config.BASE_URL}",
     )
 
     return configuration
@@ -85,28 +86,54 @@ def create_api_client():
     return cybrid_api_bank.ApiClient(configuration)
 
 
-def get_verification_keys(api_client):
-    logger.info("Getting verification keys...")
+def create_person():
+    return dict(
+        name=dict(
+            first="Jane",
+            middle=None,
+            last="Doe",
+        ),
+        address=dict(
+            street="15310 Taylor Walk Suite 995",
+            street2=None,
+            city="New York",
+            subdivision="NY",
+            postal_code="12099",
+            country_code="US",
+        ),
+        date_of_birth="2001-01-01",
+        email_address="jane.doe@example.org",
+        phone_number="+12406525665",
+        identification_numbers=[
+            dict(
+                type="social_security_number",
+                issuing_country_code="US",
+                identification_number="669-55-0349",
+            ),
+            dict(
+                type="drivers_license",
+                issuing_country_code="US",
+                identification_number="D152096714850065",
+            ),
+        ],
+    )
 
-    api_instance = verification_keys_bank_api.VerificationKeysBankApi(api_client)
 
-    try:
-        api_response = api_instance.list_verification_keys()
-        logger.info("Got verification keys.")
-        return api_response
-    except cybrid_api_bank.ApiException as e:
-        logger.error(f"An API error occurred when getting verification keys: {e}")
-        raise e
-    except Exception as e:
-        logger.error(f"An unknown error occurred when getting verification keys: {e}")
-        raise e
-
-
-def create_customer(api_client):
+def create_customer(api_client, person):
     logger.info("Creating customer...")
 
-    api_instance = customers_bank_api.CustomersBankApi(api_client)
-    post_customer = PostCustomer(type="individual")
+    api_instance = CustomersBankApi(api_client)
+    post_customer = PostCustomer(
+        type="individual",
+        name=PostCustomerName(**person["name"]),
+        address=PostCustomerAddress(**person["address"]),
+        date_of_birth=date.fromisoformat(person["date_of_birth"]),
+        email_address=person["email_address"],
+        phone_number=person["phone_number"],
+        identification_numbers=[
+            PostIdentificationNumber(**x) for x in person["identification_numbers"]
+        ],
+    )
 
     try:
         api_response = api_instance.create_customer(post_customer)
@@ -120,10 +147,42 @@ def create_customer(api_client):
         raise e
 
 
+def get_customer(api_client, guid):
+    logger.info("Getting customer...")
+
+    api_instance = CustomersBankApi(api_client)
+
+    try:
+        api_response = api_instance.get_customer(guid)
+        logger.info("Got customer.")
+        return api_response
+    except cybrid_api_bank.ApiException as e:
+        logger.error(f"An API error occurred when getting customer: {e}")
+        raise e
+    except Exception as e:
+        logger.error(f"An unknown error occurred when getting customer: {e}")
+        raise e
+
+
+def wait_for_customer_unverified(api_client, customer):
+    sleep_count = 0
+    customer_state = customer.state
+    final_states = [STATE_UNVERIFIED]
+    while customer_state not in final_states and sleep_count < Config.TIMEOUT:
+        time.sleep(1)
+        sleep_count += 1
+        customer = get_customer(api_client, customer.guid)
+        customer_state = customer.state
+    if customer_state not in final_states:
+        raise BadResultError(f"Customer has invalid state: {customer_state}")
+
+    logger.info(f"Customer successfully created with state {customer_state}")
+
+
 def create_account(api_client, customer, account_type, asset):
     logger.info(f"Creating {account_type} account for asset {asset}...")
 
-    api_instance = accounts_bank_api.AccountsBankApi(api_client)
+    api_instance = AccountsBankApi(api_client)
     post_account = PostAccount(
         type=account_type,
         customer_guid=customer.guid,
@@ -146,7 +205,7 @@ def create_account(api_client, customer, account_type, asset):
 def get_account(api_client, guid):
     logger.info("Getting account...")
 
-    api_instance = accounts_bank_api.AccountsBankApi(api_client)
+    api_instance = AccountsBankApi(api_client)
 
     try:
         api_response = api_instance.get_account(guid)
@@ -169,52 +228,70 @@ def wait_for_account_created(api_client, account):
         sleep_count += 1
         account = get_account(api_client, account.guid)
         account_state = account.state
-    if account_state != STATE_CREATED:
+    if account_state not in final_states:
         raise BadResultError(f"Account has invalid state: {account_state}")
 
     logger.info(f"Account successfully created with state {account_state}")
 
 
-def create_identity(api_client, rsa_signing_key, verification_key, customer):
-    logger.info("Creating identity record...")
+def create_identity_verification(api_client, customer, person):
+    logger.info("Creating identity verification...")
 
-    api_instance = identity_records_bank_api.IdentityRecordsBankApi(api_client)
-
-    token = create_jwt(rsa_signing_key, verification_key, customer, Config.BANK_GUID)
-    attestation_details = PostIdentityRecordAttestationDetails(token=token)
-    post_identity_record = PostIdentityRecord(
+    api_instance = IdentityVerificationsBankApi(api_client)
+    post_identity_verification = PostIdentityVerification(
+        type="kyc",
+        method="attested",
         customer_guid=customer.guid,
-        type="attestation",
-        attestation_details=attestation_details,
+        name=PostIdentityVerificationName(**person["name"]),
+        address=PostIdentityVerificationAddress(**person["address"]),
+        date_of_birth=date.fromisoformat(person["date_of_birth"]),
+        identification_numbers=[
+            PostIdentificationNumber(**x) for x in person["identification_numbers"]
+        ],
     )
 
     try:
-        api_response = api_instance.create_identity_record(post_identity_record)
-        logger.info("Created identity record.")
+        api_response = api_instance.create_identity_verification(post_identity_verification)
+        logger.info("Created identity verification.")
         return api_response
     except cybrid_api_bank.ApiException as e:
-        logger.error(f"An API error occurred when creating identity record: {e}")
+        logger.error(f"An API error occurred when creating identity verification: {e}")
         raise e
     except Exception as e:
-        logger.error(f"An unknown error occurred when creating identity record: {e}")
+        logger.error(f"An unknown error occurred when creating identity verification: {e}")
         raise e
 
 
-def get_identity(api_client, guid):
-    logger.info("Getting identity record...")
+def get_identity_verification(api_client, guid):
+    logger.info("Getting identity verification...")
 
-    api_instance = identity_records_bank_api.IdentityRecordsBankApi(api_client)
+    api_instance = IdentityVerificationsBankApi(api_client)
 
     try:
-        api_response = api_instance.get_identity_record(guid)
+        api_response = api_instance.get_identity_verification(guid)
         logger.info("Got identity record.")
         return api_response
     except cybrid_api_bank.ApiException as e:
-        logger.error(f"An API error occurred when getting identity record: {e}")
+        logger.error(f"An API error occurred when getting identity verification: {e}")
         raise e
     except Exception as e:
-        logger.error(f"An unknown error occurred when getting identity record: {e}")
+        logger.error(f"An unknown error occurred when getting identity verification: {e}")
         raise e
+
+
+def wait_for_identity_verification_completed(api_client, identity_verification):
+    sleep_count = 0
+    identity_verification_state = identity_verification.state
+    final_states = [STATE_COMPLETED]
+    while identity_verification_state not in final_states and sleep_count < Config.TIMEOUT:
+        time.sleep(1)
+        sleep_count += 1
+        identity_verification = get_identity_verification(api_client, identity_verification.guid)
+        identity_verification_state = identity_verification.state
+    if identity_verification_state not in final_states:
+        raise BadResultError(f"Identity verification has invalid state: {identity_verification_state}")
+
+    logger.info(f"Identity verification successfully completed with state {identity_verification_state}")
 
 
 def create_quote(
@@ -241,7 +318,7 @@ def create_quote(
     if asset is not None:
         kwargs["asset"] = asset
 
-    api_instance = quotes_bank_api.QuotesBankApi(api_client)
+    api_instance = QuotesBankApi(api_client)
     post_quote = PostQuote(**kwargs)
 
     try:
@@ -259,7 +336,7 @@ def create_quote(
 def create_transfer(api_client, quote, transfer_type, one_time_address=None):
     logger.info(f"Creating {transfer_type} transfer...")
 
-    api_instance = transfers_bank_api.TransfersBankApi(api_client)
+    api_instance = TransfersBankApi(api_client)
 
     transfer_params = {
         "quote_guid": quote.guid,
@@ -286,7 +363,7 @@ def create_transfer(api_client, quote, transfer_type, one_time_address=None):
 def get_transfer(api_client, guid):
     logger.info("Getting transfer...")
 
-    api_instance = transfers_bank_api.TransfersBankApi(api_client)
+    api_instance = TransfersBankApi(api_client)
 
     try:
         api_response = api_instance.get_transfer(guid)
@@ -300,7 +377,7 @@ def get_transfer(api_client, guid):
         raise e
 
 
-def wait_for_transfer_created(api_client, transfer):
+def wait_for_transfer_completed(api_client, transfer):
     sleep_count = 0
     transfer_state = transfer.state
     final_states = [STATE_COMPLETED]
@@ -309,7 +386,7 @@ def wait_for_transfer_created(api_client, transfer):
         sleep_count += 1
         transfer = get_transfer(api_client, transfer.guid)
         transfer_state = transfer.state
-    if transfer_state != STATE_COMPLETED:
+    if transfer_state not in final_states:
         raise BadResultError(f"Transfer has invalid state: {transfer_state}")
 
     logger.info(f"Transfer successfully completed with state {transfer_state}")
@@ -318,7 +395,7 @@ def wait_for_transfer_created(api_client, transfer):
 def create_trade(api_client, quote):
     logger.info("Creating trade...")
 
-    api_instance = trades_bank_api.TradesBankApi(api_client)
+    api_instance = TradesBankApi(api_client)
     post_trade = PostTrade(quote.guid)
 
     try:
@@ -336,7 +413,7 @@ def create_trade(api_client, quote):
 def get_trade(api_client, guid):
     logger.info("Getting trade...")
 
-    api_instance = trades_bank_api.TradesBankApi(api_client)
+    api_instance = TradesBankApi(api_client)
 
     try:
         api_response = api_instance.get_trade(guid)
@@ -350,7 +427,7 @@ def get_trade(api_client, guid):
         raise e
 
 
-def wait_for_trade_created(api_client, trade):
+def wait_for_trade_completed(api_client, trade):
     sleep_count = 0
     trade_state = trade.state
     final_states = [STATE_SETTLING]
@@ -359,7 +436,7 @@ def wait_for_trade_created(api_client, trade):
         sleep_count += 1
         trade = get_trade(api_client, trade.guid)
         trade_state = trade.state
-    if trade_state != STATE_SETTLING:
+    if trade_state not in final_states:
         raise BadResultError(f"Trade has invalid state: {trade_state}")
 
     logger.info(f"Trade successfully completed with state {trade_state}")
@@ -367,48 +444,22 @@ def wait_for_trade_created(api_client, trade):
 
 def main():
     create_logging_handler()
+    person = create_person()
     api_client = create_api_client()
-
-    verification_key = get_verification_keys(api_client).objects[0]
-    verification_key_state = verification_key.state
-    if verification_key_state != STATE_VERIFIED:
-        raise BadResultError(
-            f"Verification key has invalid state: #{verification_key_state}"
-        )
 
     #
     # Create customer
     #
 
-    customer = create_customer(api_client)
+    customer = create_customer(api_client, person)
+    wait_for_customer_unverified(api_client, customer)
 
     #
-    # Upload identity record
+    # Create identity verification
     #
 
-    attestation_signing_key = load_pem_private_key(
-        str.encode(Config.ATTESTATION_SIGNING_KEY), None
-    )
-    identity_record = create_identity(
-        api_client, attestation_signing_key, verification_key, customer
-    )
-
-    sleep_count = 0
-    identity_record_state = identity_record.attestation_details.state
-    final_states = [STATE_VERIFIED, STATE_FAILED]
-    while identity_record_state not in final_states and sleep_count < Config.TIMEOUT:
-        time.sleep(1)
-        sleep_count += 1
-        identity_record = get_identity(api_client, identity_record.guid)
-        identity_record_state = identity_record.attestation_details.state
-    if identity_record_state != STATE_VERIFIED:
-        raise BadResultError(
-            f"Identity record has invalid state: {identity_record_state}"
-        )
-
-    logger.info(
-        f"Identity record successfully created with state {identity_record_state}"
-    )
+    identity_verification = create_identity_verification(api_client, customer, person)
+    wait_for_identity_verification_completed(api_client, identity_verification)
 
     #
     # Create accounts
@@ -428,13 +479,13 @@ def main():
     # Add funds to account
     #
 
-    usd_quantity = 1 * int(1e5)
+    usd_quantity = 100_000
     fiat_book_transfer_quote = create_quote(
         api_client, customer, "book_transfer", "deposit", usd_quantity, asset="USD"
     )
     transfer = create_transfer(api_client, fiat_book_transfer_quote, "book")
 
-    wait_for_transfer_created(api_client, transfer)
+    wait_for_transfer_completed(api_client, transfer)
 
     #
     # Check USD balance
@@ -453,13 +504,13 @@ def main():
     # Purchase BTC
     #
 
-    btc_quantity = 1 * int(1e5)
+    btc_quantity = 100_000
     crypto_trading_btc_quote = create_quote(
         api_client, customer, "trading", "buy", btc_quantity, symbol="BTC-USD"
     )
     trade = create_trade(api_client, crypto_trading_btc_quote)
 
-    wait_for_trade_created(api_client, trade)
+    wait_for_trade_completed(api_client, trade)
 
     #
     # Check BTC balance
@@ -478,7 +529,7 @@ def main():
     # Transfer BTC
     #
 
-    btc_withdrawal_quantity = 5 * int(1e4)
+    btc_withdrawal_quantity = 50_000
     crypto_withdrawal_btc_quote = create_quote(
         api_client,
         customer,
@@ -497,7 +548,7 @@ def main():
         ),
     )
 
-    wait_for_transfer_created(api_client, crypto_transfer)
+    wait_for_transfer_completed(api_client, crypto_transfer)
 
     #
     # Check BTC balance

@@ -105,6 +105,7 @@ celerybeat.pid
 .env
 .venv
 demo.env
+local.env
 staging.env
 sandbox.env
 production.env

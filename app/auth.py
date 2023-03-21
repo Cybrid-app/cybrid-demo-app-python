@@ -1,7 +1,7 @@
 from config import Config
 import requests
 
-AUTH_URL = f"id.{Config.BASE_URL}/oauth/token"
+AUTH_URL = f"{Config.URL_SCHEME}://id.{Config.BASE_URL}/oauth/token"
 
 ACCOUNTS_SCOPES = ["accounts:read", "accounts:execute"]
 BANKS_SCOPES = ["banks:read", "banks:write"]
@@ -34,7 +34,7 @@ def get_token():
         "scope": " ".join(SCOPES),
     }
     response = requests.post(
-        f"https://{AUTH_URL}", headers=auth_headers, json=auth_body
+        AUTH_URL, headers=auth_headers, json=auth_body
     )
     token = response.json()["access_token"]
     return token
