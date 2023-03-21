@@ -107,11 +107,11 @@
         },
         "cybrid-api-bank-python": {
             "hashes": [
-                "sha256:4a821262d675a1b6631951574670ff9be5e3b87d59aefb48fa06325c33f0b9cb",
-                "sha256:7feda3e9c11e8a0d26390adf9ff813e7d3ab1be51c7ccadb107bf06207af6a81"
+                "sha256:4423491d2d1a8426782e1b128ddaf3c4ef32dcb174fcc4e4dfbac2c584d25b5b",
+                "sha256:ff90b3ffcdabd2c396ea5d152d26bd48f11140896af24f3045296861e5137f22"
             ],
             "index": "pypi",
-            "version": "==0.66.1"
+            "version": "==0.67.0"
         },
         "idna": {
             "hashes": [
