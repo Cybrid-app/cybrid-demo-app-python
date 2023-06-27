@@ -14,6 +14,7 @@ PRICES_SCOPES = ["prices:read"]
 QUOTES_SCOPES = ["quotes:read", "quotes:execute"]
 TRADES_SCOPES = ["trades:read", "trades:execute"]
 TRANSFERS_SCOPES = ["transfers:read", "transfers:execute"]
+EXTERNAL_WALLET_SCOPES = ["external_wallets:read", "external_wallets:execute"]
 SCOPES = [
     *ACCOUNTS_SCOPES,
     *BANKS_SCOPES,
@@ -22,6 +23,7 @@ SCOPES = [
     *QUOTES_SCOPES,
     *TRADES_SCOPES,
     *TRANSFERS_SCOPES,
+    *EXTERNAL_WALLET_SCOPES,
 ]
 
 
