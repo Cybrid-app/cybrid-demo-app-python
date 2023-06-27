@@ -2,12 +2,13 @@
 # 2. Create an attested identity verification for the customer
 # 3. Create a USD fiat account for the customer
 # 4. Create a BTC-USD trading account for the customer
-# 5. Generate a book transfer quote in USD
-# 6. Execute the book transfer quote using a transfer
-# 7. Get the balance of the customer's USD fiat account
-# 8. Generate a buy quote in BTC-USD
-# 9. Execute the buy quote using a trade
-# 10. Get the balance of the customer's BTC-USD trading account
+# 5. Create an external BTC wallet address for the customer
+# 6. Generate a book transfer quote in USD
+# 7. Execute the book transfer quote using a transfer
+# 8. Get the balance of the customer's USD fiat account
+# 9. Generate a buy quote in BTC-USD
+# 10. Execute the buy quote using a trade
+# 11. Get the balance of the customer's BTC-USD trading account
 
 import logging
 import secrets
@@ -23,20 +24,21 @@ from cybrid_api_bank.apis import (
     QuotesBankApi,
     TradesBankApi,
     TransfersBankApi,
+    ExternalWalletsBankApi,
 )
 from cybrid_api_bank.models import (
     PostAccount,
-    PostCustomer, 
-    PostCustomerName, 
-    PostCustomerAddress, 
-    PostIdentificationNumber,
+    PostCustomer,
     PostIdentityVerification,
-    PostIdentityVerificationAddress,
-    PostIdentityVerificationName,
     PostQuote,
     PostTrade,
     PostTransfer,
-    PostOneTimeAddress
+    PostCustomerAddress,
+    PostCustomerName,
+    PostIdentificationNumber,
+    PostIdentityVerificationAddress,
+    PostIdentityVerificationName,
+    PostExternalWallet,
 )
 
 from auth import get_token
@@ -333,7 +335,7 @@ def create_quote(
         raise e
 
 
-def create_transfer(api_client, quote, transfer_type, one_time_address=None):
+def create_transfer(api_client, quote, transfer_type, external_wallet=None):
     logger.info(f"Creating {transfer_type} transfer...")
 
     api_instance = TransfersBankApi(api_client)
@@ -343,8 +345,8 @@ def create_transfer(api_client, quote, transfer_type, one_time_address=None):
         "transfer_type": transfer_type,
     }
 
-    if one_time_address is not None:
-        transfer_params["one_time_address"] = one_time_address
+    if external_wallet is not None:
+        transfer_params["external_wallet_guid"] = external_wallet.guid
 
     post_transfer = PostTransfer(**transfer_params)
 
@@ -442,6 +444,63 @@ def wait_for_trade_completed(api_client, trade):
     logger.info(f"Trade successfully completed with state {trade_state}")
 
 
+def create_external_wallet(api_client, customer, asset):
+    logger.info(f"Creating external wallet for {asset}...")
+
+    api_instance = ExternalWalletsBankApi(api_client)
+
+    body = PostExternalWallet(
+        name=f"External wallet for {customer.guid}",
+        asset=asset,
+        address=secrets.token_hex(16),
+        tag=secrets.token_hex(16),
+        customer_guid=customer.guid,
+    )
+
+    try:
+        external_wallet = api_instance.create_external_wallet(post_external_wallet=body)
+        logger.info("Created external wallet.")
+        return external_wallet
+    except cybrid_api_bank.ApiException as e:
+        logger.error(f"An API error occurred when creating an external wallet: {e}")
+        raise e
+    except Exception as e:
+        logger.error(f"An unknown error occurred when creating external wallet: {e}")
+        raise e
+
+
+def get_external_wallet(api_client, guid):
+    logger.info("Getting external wallet...")
+
+    api_instance = ExternalWalletsBankApi(api_client)
+
+    try:
+        external_wallet = api_instance.get_external_wallet(guid)
+        logger.info("Got external wallet")
+        return external_wallet
+    except cybrid_api_bank.ApiException as e:
+        logger.error(f"An API error occurred when getting external wallet: {e}")
+        raise e
+    except Exception as e:
+        logger.error(f"An unknown error occurred when getting external wallet: {e}")
+        raise e
+
+
+def wait_for_external_wallet_completed(api_client, external_wallet):
+    sleep_count = 0
+    external_wallet_state = external_wallet.state
+    final_states = [STATE_COMPLETED]
+    while external_wallet_state not in final_states and sleep_count < Config.TIMEOUT:
+        time.sleep(1)
+        sleep_count += 1
+        external_wallet = get_external_wallet(api_client, external_wallet.guid)
+        external_wallet_state = external_wallet.state
+    if external_wallet_state not in final_states:
+        raise BadResultError(f"External wallet has invalid state: {external_wallet_state}")
+
+    logger.info(f"Trade successfully completed with state {external_wallet_state}")
+
+
 def main():
     create_logging_handler()
     person = create_person()
@@ -474,6 +533,11 @@ def main():
 
     crypto_btc_account = create_account(api_client, customer, "trading", "BTC")
     wait_for_account_created(api_client, crypto_btc_account)
+
+    # Add BTC external wallet
+
+    btc_external_wallet = create_external_wallet(api_client, customer, "BTC")
+    wait_for_external_wallet_completed(api_client, btc_external_wallet)
 
     #
     # Add funds to account
@@ -542,10 +606,7 @@ def main():
         api_client,
         crypto_withdrawal_btc_quote,
         "crypto",
-        PostOneTimeAddress(
-            address=secrets.token_hex(16),
-            tag=None,
-        ),
+        btc_external_wallet,
     )
 
     wait_for_transfer_completed(api_client, crypto_transfer)
