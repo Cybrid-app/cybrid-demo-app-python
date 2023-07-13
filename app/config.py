@@ -12,3 +12,4 @@ class Config:
     CLIENT_ID = os.getenv("APPLICATION_CLIENT_ID")
     CLIENT_SECRET = os.getenv("APPLICATION_CLIENT_SECRET")
     TIMEOUT = int(os.getenv("TIMEOUT", default=30))
+    CRYPTO_ASSETS = os.getenv("CRYPTO_ASSETS", default="BTC").split(",")

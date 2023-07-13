@@ -1,14 +1,15 @@
 # 1. Create a customer
 # 2. Create an attested identity verification for the customer
 # 3. Create a USD fiat account for the customer
-# 4. Create a BTC-USD trading account for the customer
-# 5. Create an external BTC wallet address for the customer
-# 6. Generate a book transfer quote in USD
-# 7. Execute the book transfer quote using a transfer
-# 8. Get the balance of the customer's USD fiat account
-# 9. Generate a buy quote in BTC-USD
-# 10. Execute the buy quote using a trade
-# 11. Get the balance of the customer's BTC-USD trading account
+# 4. Generate a book transfer quote in USD
+# 5. Execute the book transfer quote using a transfer
+# 6. Get the balance of the customer's USD fiat account
+# 7. Create a crypto trading accounts: BTC, ETH, USDC for the customer
+# 8. Create cyrpto wallets for the customer
+# 8. Generate buy quotes
+# 9. Execute buy quotes using a trade
+# 10. Execute a crypto withdrawal
+# 11. Get the balance of the customer's crypto trading account
 
 import logging
 import secrets
@@ -297,28 +298,36 @@ def wait_for_identity_verification_completed(api_client, identity_verification):
 
 
 def create_quote(
-    api_client, customer, product_type, side, receive_amount, symbol=None, asset=None
+    api_client, customer, product_type, side, deliver_amount=None, receive_amount=None, symbol=None, asset=None
 ):
+    if deliver_amount is not None:
+        amount = deliver_amount
+    if receive_amount is not None:
+        amount = receive_amount
+
     if symbol is not None:
         logger.info(
-            f"Creating {side} {product_type} quote for {symbol} of {receive_amount}"
+            f"Creating {side} {product_type} quote for {symbol} of {amount}"
         )
     if asset is not None:
         logger.info(
-            f"Creating {side} {product_type} quote for {asset} of {receive_amount}"
+            f"Creating {side} {product_type} quote for {asset} of {amount}"
         )
 
     kwargs = {
         "product_type": product_type,
         "customer_guid": customer.guid,
         "side": side,
-        "receive_amount": receive_amount,
     }
 
     if symbol is not None:
         kwargs["symbol"] = symbol
     if asset is not None:
         kwargs["asset"] = asset
+    if deliver_amount is not None:
+        kwargs["deliver_amount"] = deliver_amount
+    if receive_amount is not None:
+        kwargs["receive_amount"] = receive_amount
 
     api_instance = QuotesBankApi(api_client)
     post_quote = PostQuote(**kwargs)
@@ -521,23 +530,11 @@ def main():
     wait_for_identity_verification_completed(api_client, identity_verification)
 
     #
-    # Create accounts
+    # Create fiat USD account
     #
-
-    # Fiat USD account
 
     fiat_usd_account = create_account(api_client, customer, "fiat", "USD")
     wait_for_account_created(api_client, fiat_usd_account)
-
-    # Crypto BTC account
-
-    crypto_btc_account = create_account(api_client, customer, "trading", "BTC")
-    wait_for_account_created(api_client, crypto_btc_account)
-
-    # Add BTC external wallet
-
-    btc_external_wallet = create_external_wallet(api_client, customer, "BTC")
-    wait_for_external_wallet_completed(api_client, btc_external_wallet)
 
     #
     # Add funds to account
@@ -564,65 +561,66 @@ def main():
 
     logger.info(f"Account has the expected balance: {fiat_balance}")
 
-    #
-    # Purchase BTC
-    #
+    for asset in Config.CRYPTO_ASSETS:
+        crypto_accounts = {}
+        crypto_wallets = {}
 
-    btc_quantity = 100_000
-    crypto_trading_btc_quote = create_quote(
-        api_client, customer, "trading", "buy", btc_quantity, symbol="BTC-USD"
-    )
-    trade = create_trade(api_client, crypto_trading_btc_quote)
+        #
+        # Crypto accounts
+        #
 
-    wait_for_trade_completed(api_client, trade)
+        crypto_accounts[asset] = create_account(api_client, customer, "trading", asset)
+        wait_for_account_created(api_client, crypto_accounts[asset])
 
-    #
-    # Check BTC balance
-    #
+        #
+        # Crypto wallets
 
-    crypto_btc_account = get_account(api_client, crypto_btc_account.guid)
-    crypto_balance = crypto_btc_account.platform_balance
-    if crypto_balance != btc_quantity:
-        raise BadResultError(
-            f"Account has an unexpected balance: {crypto_balance}. Should be {btc_quantity}"
+        crypto_wallets[asset] = create_external_wallet(api_client, customer, asset)
+        wait_for_external_wallet_completed(api_client, crypto_wallets[asset])
+
+        #
+        # Purchase crypto
+
+        deliver_amount = 10_000
+
+        quote = create_quote(
+            api_client, customer, "trading", "buy", deliver_amount=deliver_amount, symbol=f"{asset}-USD"
         )
+        trade = create_trade(api_client, quote)
 
-    logger.info(f"Account has the expected balance: {crypto_balance}")
+        wait_for_trade_completed(api_client, trade)
 
-    #
-    # Transfer BTC
-    #
+        #
+        # Transfer crypto
 
-    btc_withdrawal_quantity = 50_000
-    crypto_withdrawal_btc_quote = create_quote(
-        api_client,
-        customer,
-        "crypto_transfer",
-        "withdrawal",
-        btc_withdrawal_quantity,
-        asset="BTC",
-    )
-    crypto_transfer = create_transfer(
-        api_client,
-        crypto_withdrawal_btc_quote,
-        "crypto",
-        btc_external_wallet,
-    )
+        crypto_account = get_account(api_client, crypto_accounts[asset].guid)
+        crypto_balance = crypto_account.platform_balance
 
-    wait_for_transfer_completed(api_client, crypto_transfer)
+        if crypto_balance == 0:
+            raise BadResultError(
+                f"Crypto {asset} account has an unexpected balance: {crypto_balance}"
+            )
 
-    #
-    # Check BTC balance
-    #
+        external_wallet = get_external_wallet(api_client, crypto_wallets[asset].guid)
 
-    crypto_btc_account = get_account(api_client, crypto_btc_account.guid)
-    crypto_balance = crypto_btc_account.platform_balance
-    if crypto_balance != (btc_quantity - btc_withdrawal_quantity):
-        raise BadResultError(
-            f"Account has an unexpected balance: {crypto_balance}. Should be {btc_quantity - btc_withdrawal_quantity}"
-        )
+        quote = create_quote(api_client, customer, 'crypto_transfer', 'withdrawal', deliver_amount=crypto_balance, asset=asset)
+        transfer = create_transfer(api_client, quote, 'crypto', external_wallet)
 
-    logger.info(f"Account has the expected balance: {crypto_balance}")
+        wait_for_transfer_completed(api_client, transfer)
+
+        #
+        # Check crypto balances
+
+        crypto_account = get_account(api_client, crypto_accounts[asset].guid)
+        crypto_balance = crypto_account.platform_balance
+
+        if crypto_balance != 0:
+            raise BadResultError(
+                f"Crypto {asset} account has an unexpected balance: {crypto_balance}"
+            )
+
+        logger.info(f"Crypto {asset} account has the expected balance: {crypto_balance}")
+
     logger.info("Test has completed successfully!")
 
 
