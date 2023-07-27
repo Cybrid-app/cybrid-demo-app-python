@@ -1,15 +1,16 @@
 # 1. Create a customer
 # 2. Create an attested identity verification for the customer
-# 3. Create a USD fiat account for the customer
-# 4. Generate a book transfer quote in USD
-# 5. Execute the book transfer quote using a transfer
-# 6. Get the balance of the customer's USD fiat account
-# 7. Create a crypto trading accounts: BTC, ETH, USDC for the customer
-# 8. Create cyrpto wallets for the customer
-# 8. Generate buy quotes
-# 9. Execute buy quotes using a trade
-# 10. Execute a crypto withdrawal
-# 11. Get the balance of the customer's crypto trading account
+# 3. Get USD fiat account for the bank
+# 4. Create a USD fiat accuont for the customer
+# 5. Generate a book transfer quote in USD
+# 6. Execute the book transfer quote using a transfer
+# 7. Get the balance of the customer's USD fiat account
+# 8. Create a crypto trading accounts: BTC, ETH, USDC for the customer
+# 9. Create cyrpto wallets for the customer
+# 10. Generate buy quotes
+# 11. Execute buy quotes using a trade
+# 12. Execute a crypto withdrawal
+# 13. Get the balance of the customer's crypto trading account
 
 import logging
 import secrets
@@ -205,6 +206,25 @@ def create_account(api_client, customer, account_type, asset):
         raise e
 
 
+def list_accounts(api_client, owner, type):
+    logger.info("Listing accounts...")
+
+    api_instance = AccountsBankApi(api_client)
+
+    try:
+      accounts = api_instance.list_accounts(owner=owner, type=type)
+
+      logger.info("Got accounts.")
+
+      return accounts.objects
+    except cybrid_api_bank.ApiException as e:
+        logger.error(f"An API error occurred when listing accounts: {e}")
+        raise e
+    except Exception as e:
+        logger.error(f"An unknown error occurred when listing accounts: {e}")
+        raise e
+
+
 def get_account(api_client, guid):
     logger.info("Getting account...")
 
@@ -344,7 +364,8 @@ def create_quote(
         raise e
 
 
-def create_transfer(api_client, quote, transfer_type, external_wallet=None):
+def create_transfer(api_client, quote, transfer_type, source_platform_account=None, destination_platform_account=None,
+                    external_wallet=None):
     logger.info(f"Creating {transfer_type} transfer...")
 
     api_instance = TransfersBankApi(api_client)
@@ -354,6 +375,10 @@ def create_transfer(api_client, quote, transfer_type, external_wallet=None):
         "transfer_type": transfer_type,
     }
 
+    if source_platform_account is not None:
+        transfer_params["source_account_guid"] = source_platform_account.guid
+    if destination_platform_account is not None:
+        transfer_params["destination_account_guid"] = destination_platform_account.guid
     if external_wallet is not None:
         transfer_params["external_wallet_guid"] = external_wallet.guid
 
@@ -453,6 +478,23 @@ def wait_for_trade_completed(api_client, trade):
     logger.info(f"Trade successfully completed with state {trade_state}")
 
 
+def wait_for_expected_account_balance(api_client, platform_account, expected_balance):
+    sleep_count = 0
+    account = get_account(api_client, platform_account.guid)
+    platform_balance = account.platform_balance
+
+    while platform_balance != expected_balance and sleep_count < Config.TIMEOUT:
+        time.sleep(1)
+        sleep_count += 1
+        account = get_account(api_client, platform_account.guid)
+        platform_balance = account.platform_balance
+
+    if platform_balance != expected_balance:
+        raise BadResultError(f"Account has an unexpected balance: {platform_balance}.")
+
+    logger.info("Expected account balance successfully found.")
+
+
 def create_external_wallet(api_client, customer, asset):
     logger.info(f"Creating external wallet for {asset}...")
 
@@ -530,11 +572,20 @@ def main():
     wait_for_identity_verification_completed(api_client, identity_verification)
 
     #
-    # Create fiat USD account
+    # Get bank fiat USD account
     #
 
-    fiat_usd_account = create_account(api_client, customer, "fiat", "USD")
-    wait_for_account_created(api_client, fiat_usd_account)
+    bank_accounts = list_accounts(api_client, 'bank', 'fiat')
+    bank_fiat_usd_account = next(filter(lambda x: x.asset == 'USD', bank_accounts), None)
+    if not bank_fiat_usd_account:
+        raise BadResultError("Bank has no USD fiat bank account")
+
+    #
+    # Create customer fiat USD account
+    #
+
+    customer_fiat_usd_account = create_account(api_client, customer, "fiat", "USD")
+    wait_for_account_created(api_client, customer_fiat_usd_account)
 
     #
     # Add funds to account
@@ -544,7 +595,9 @@ def main():
     fiat_book_transfer_quote = create_quote(
         api_client, customer, "book_transfer", "deposit", usd_quantity, asset="USD"
     )
-    transfer = create_transfer(api_client, fiat_book_transfer_quote, "book")
+    transfer = create_transfer(api_client, fiat_book_transfer_quote, "book",
+                               source_platform_account=bank_fiat_usd_account,
+                               destination_platform_account=customer_fiat_usd_account)
 
     wait_for_transfer_completed(api_client, transfer)
 
@@ -552,8 +605,8 @@ def main():
     # Check USD balance
     #
 
-    fiat_usd_account = get_account(api_client, fiat_usd_account.guid)
-    fiat_balance = fiat_usd_account.platform_balance
+    customer_fiat_usd_account = get_account(api_client, customer_fiat_usd_account.guid)
+    fiat_balance = customer_fiat_usd_account.platform_balance
     if fiat_balance != usd_quantity:
         raise BadResultError(
             f"Account has an unexpected balance: {fiat_balance}. Should be {usd_quantity}"
@@ -593,31 +646,25 @@ def main():
         #
         # Transfer crypto
 
+        wait_for_expected_account_balance(api_client, crypto_accounts[asset], trade.receive_amount)
+
         crypto_account = get_account(api_client, crypto_accounts[asset].guid)
         crypto_balance = crypto_account.platform_balance
-
-        if crypto_balance == 0:
-            raise BadResultError(
-                f"Crypto {asset} account has an unexpected balance: {crypto_balance}"
-            )
 
         external_wallet = get_external_wallet(api_client, crypto_wallets[asset].guid)
 
         quote = create_quote(api_client, customer, 'crypto_transfer', 'withdrawal', deliver_amount=crypto_balance, asset=asset)
-        transfer = create_transfer(api_client, quote, 'crypto', external_wallet)
+        transfer = create_transfer(api_client, quote, 'crypto', external_wallet=external_wallet)
 
         wait_for_transfer_completed(api_client, transfer)
 
         #
         # Check crypto balances
 
+        wait_for_expected_account_balance(api_client, crypto_accounts[asset], 0)
+
         crypto_account = get_account(api_client, crypto_accounts[asset].guid)
         crypto_balance = crypto_account.platform_balance
-
-        if crypto_balance != 0:
-            raise BadResultError(
-                f"Crypto {asset} account has an unexpected balance: {crypto_balance}"
-            )
 
         logger.info(f"Crypto {asset} account has the expected balance: {crypto_balance}")
 
