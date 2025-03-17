@@ -15,6 +15,10 @@ QUOTES_SCOPES = ["quotes:read", "quotes:execute"]
 TRADES_SCOPES = ["trades:read", "trades:execute"]
 TRANSFERS_SCOPES = ["transfers:read", "transfers:execute"]
 EXTERNAL_WALLET_SCOPES = ["external_wallets:read", "external_wallets:execute"]
+IDENTITY_VERIFICATIONS_SCOPES = [
+    "identity_verifications:read",
+    "identity_verifications:execute",
+]
 SCOPES = [
     *ACCOUNTS_SCOPES,
     *BANKS_SCOPES,
@@ -24,6 +28,7 @@ SCOPES = [
     *TRADES_SCOPES,
     *TRANSFERS_SCOPES,
     *EXTERNAL_WALLET_SCOPES,
+    *IDENTITY_VERIFICATIONS_SCOPES,
 ]
 
 
@@ -35,8 +40,6 @@ def get_token():
         "client_secret": Config.CLIENT_SECRET,
         "scope": " ".join(SCOPES),
     }
-    response = requests.post(
-        AUTH_URL, headers=auth_headers, json=auth_body
-    )
+    response = requests.post(AUTH_URL, headers=auth_headers, json=auth_body)
     token = response.json()["access_token"]
     return token

@@ -1,5 +1,5 @@
 # 1. Create a customer
-# 2. Create an attested identity verification for the customer
+# 2. Create a passed immediately identity verification for the customer
 # 3. Get USD fiat account for the bank
 # 4. Create a USD fiat accuont for the customer
 # 5. Generate a book transfer quote in USD
@@ -21,6 +21,7 @@ from datetime import date
 import cybrid_api_bank
 from cybrid_api_bank.apis import (
     AccountsBankApi,
+    BanksBankApi,
     CustomersBankApi,
     IdentityVerificationsBankApi,
     QuotesBankApi,
@@ -29,12 +30,14 @@ from cybrid_api_bank.apis import (
     ExternalWalletsBankApi,
 )
 from cybrid_api_bank.models import (
+    Bank,
     PostAccount,
     PostCustomer,
     PostIdentityVerification,
     PostQuote,
     PostTrade,
     PostTransfer,
+    PostTransferParticipant,
     PostCustomerAddress,
     PostCustomerName,
     PostIdentificationNumber,
@@ -59,6 +62,8 @@ STATE_CREATED = "created"
 STATE_COMPLETED = "completed"
 STATE_SETTLING = "settling"
 STATE_UNVERIFIED = "unverified"
+
+IDENTITY_VERIFICATION_EXPECTED_BEHAVIOUR_PASSED_IMMEDIATELY = "passed_immediately"
 
 
 logger = logging.getLogger()
@@ -88,6 +93,15 @@ def create_api_client():
     token = get_token()
     configuration = create_configuration(token)
     return cybrid_api_bank.ApiClient(configuration)
+
+
+def get_bank(api_client):
+    logger.info("Getting bank...")
+
+    api_instance = BanksBankApi(api_client)
+
+    # https://docs.cybrid.xyz/reference/getbank
+    return api_instance.get_bank(bank_guid=Config.BANK_GUID)
 
 
 def create_person():
@@ -140,6 +154,7 @@ def create_customer(api_client, person):
     )
 
     try:
+        # https://docs.cybrid.xyz/reference/createcustomer
         api_response = api_instance.create_customer(post_customer)
         logger.info("Created customer.")
         return api_response
@@ -157,6 +172,7 @@ def get_customer(api_client, guid):
     api_instance = CustomersBankApi(api_client)
 
     try:
+        # https://docs.cybrid.xyz/reference/getcustomer
         api_response = api_instance.get_customer(guid)
         logger.info("Got customer.")
         return api_response
@@ -195,6 +211,7 @@ def create_account(api_client, customer, account_type, asset):
     )
 
     try:
+        # https://docs.cybrid.xyz/reference/createaccount
         api_response = api_instance.create_account(post_account)
         logger.info(f"Created {account_type} account.")
         return api_response
@@ -212,11 +229,12 @@ def list_accounts(api_client, owner, type):
     api_instance = AccountsBankApi(api_client)
 
     try:
-      accounts = api_instance.list_accounts(owner=owner, type=type)
+        # https://docs.cybrid.xyz/reference/listaccounts
+        accounts = api_instance.list_accounts(owner=owner, type=type)
 
-      logger.info("Got accounts.")
+        logger.info("Got accounts.")
 
-      return accounts.objects
+        return accounts.objects
     except cybrid_api_bank.ApiException as e:
         logger.error(f"An API error occurred when listing accounts: {e}")
         raise e
@@ -231,6 +249,7 @@ def get_account(api_client, guid):
     api_instance = AccountsBankApi(api_client)
 
     try:
+        # https://docs.cybrid.xyz/reference/getaccount
         api_response = api_instance.get_account(guid)
         logger.info("Got account.")
         return api_response
@@ -263,7 +282,7 @@ def create_identity_verification(api_client, customer, person):
     api_instance = IdentityVerificationsBankApi(api_client)
     post_identity_verification = PostIdentityVerification(
         type="kyc",
-        method="attested",
+        method="id_and_selfie",
         customer_guid=customer.guid,
         name=PostIdentityVerificationName(**person["name"]),
         address=PostIdentityVerificationAddress(**person["address"]),
@@ -271,17 +290,25 @@ def create_identity_verification(api_client, customer, person):
         identification_numbers=[
             PostIdentificationNumber(**x) for x in person["identification_numbers"]
         ],
+        expected_behaviours=[
+            IDENTITY_VERIFICATION_EXPECTED_BEHAVIOUR_PASSED_IMMEDIATELY
+        ],
     )
 
     try:
-        api_response = api_instance.create_identity_verification(post_identity_verification)
+        # https://docs.cybrid.xyz/reference/createidentityverification
+        api_response = api_instance.create_identity_verification(
+            post_identity_verification
+        )
         logger.info("Created identity verification.")
         return api_response
     except cybrid_api_bank.ApiException as e:
         logger.error(f"An API error occurred when creating identity verification: {e}")
         raise e
     except Exception as e:
-        logger.error(f"An unknown error occurred when creating identity verification: {e}")
+        logger.error(
+            f"An unknown error occurred when creating identity verification: {e}"
+        )
         raise e
 
 
@@ -291,6 +318,7 @@ def get_identity_verification(api_client, guid):
     api_instance = IdentityVerificationsBankApi(api_client)
 
     try:
+        # https://docs.cybrid.xyz/reference/getidentityverification
         api_response = api_instance.get_identity_verification(guid)
         logger.info("Got identity record.")
         return api_response
@@ -298,7 +326,9 @@ def get_identity_verification(api_client, guid):
         logger.error(f"An API error occurred when getting identity verification: {e}")
         raise e
     except Exception as e:
-        logger.error(f"An unknown error occurred when getting identity verification: {e}")
+        logger.error(
+            f"An unknown error occurred when getting identity verification: {e}"
+        )
         raise e
 
 
@@ -306,19 +336,34 @@ def wait_for_identity_verification_completed(api_client, identity_verification):
     sleep_count = 0
     identity_verification_state = identity_verification.state
     final_states = [STATE_COMPLETED]
-    while identity_verification_state not in final_states and sleep_count < Config.TIMEOUT:
+    while (
+        identity_verification_state not in final_states and sleep_count < Config.TIMEOUT
+    ):
         time.sleep(1)
         sleep_count += 1
-        identity_verification = get_identity_verification(api_client, identity_verification.guid)
+        identity_verification = get_identity_verification(
+            api_client, identity_verification.guid
+        )
         identity_verification_state = identity_verification.state
     if identity_verification_state not in final_states:
-        raise BadResultError(f"Identity verification has invalid state: {identity_verification_state}")
+        raise BadResultError(
+            f"Identity verification has invalid state: {identity_verification_state}"
+        )
 
-    logger.info(f"Identity verification successfully completed with state {identity_verification_state}")
+    logger.info(
+        f"Identity verification successfully completed with state {identity_verification_state}"
+    )
 
 
 def create_quote(
-    api_client, customer, product_type, side, deliver_amount=None, receive_amount=None, symbol=None, asset=None
+    api_client,
+    customer,
+    product_type,
+    side,
+    deliver_amount=None,
+    receive_amount=None,
+    symbol=None,
+    asset=None,
 ):
     if deliver_amount is not None:
         amount = deliver_amount
@@ -326,13 +371,9 @@ def create_quote(
         amount = receive_amount
 
     if symbol is not None:
-        logger.info(
-            f"Creating {side} {product_type} quote for {symbol} of {amount}"
-        )
+        logger.info(f"Creating {side} {product_type} quote for {symbol} of {amount}")
     if asset is not None:
-        logger.info(
-            f"Creating {side} {product_type} quote for {asset} of {amount}"
-        )
+        logger.info(f"Creating {side} {product_type} quote for {asset} of {amount}")
 
     kwargs = {
         "product_type": product_type,
@@ -353,6 +394,7 @@ def create_quote(
     post_quote = PostQuote(**kwargs)
 
     try:
+        # https://docs.cybrid.xyz/reference/createquote
         api_response = api_instance.create_quote(post_quote)
         logger.info("Created quote.")
         return api_response
@@ -364,8 +406,16 @@ def create_quote(
         raise e
 
 
-def create_transfer(api_client, quote, transfer_type, source_platform_account=None, destination_platform_account=None,
-                    external_wallet=None):
+def create_transfer(
+    api_client,
+    quote,
+    transfer_type,
+    source_platform_account=None,
+    destination_platform_account=None,
+    external_wallet=None,
+    source_participant=None,
+    destination_participant=None,
+):
     logger.info(f"Creating {transfer_type} transfer...")
 
     api_instance = TransfersBankApi(api_client)
@@ -381,10 +431,37 @@ def create_transfer(api_client, quote, transfer_type, source_platform_account=No
         transfer_params["destination_account_guid"] = destination_platform_account.guid
     if external_wallet is not None:
         transfer_params["external_wallet_guid"] = external_wallet.guid
+    if source_participant is not None:
+        if isinstance(source_participant, Bank):
+            type = "bank"
+        else:
+            type = "customer"
+
+        transfer_params["source_participants"] = [
+            PostTransferParticipant(
+                type=type,
+                amount=quote.deliver_amount,
+                guid=source_participant.guid,
+            )
+        ]
+    if destination_participant is not None:
+        if isinstance(destination_participant, Bank):
+            type = "bank"
+        else:
+            type = "customer"
+
+        transfer_params["destination_participants"] = [
+            PostTransferParticipant(
+                type=type,
+                amount=quote.receive_amount,
+                guid=destination_participant.guid,
+            )
+        ]
 
     post_transfer = PostTransfer(**transfer_params)
 
     try:
+        # https://docs.cybrid.xyz/reference/createtransfer
         api_response = api_instance.create_transfer(post_transfer)
         logger.info("Created transfer.")
         return api_response
@@ -402,6 +479,7 @@ def get_transfer(api_client, guid):
     api_instance = TransfersBankApi(api_client)
 
     try:
+        # https://docs.cybrid.xyz/reference/gettransfer
         api_response = api_instance.get_transfer(guid)
         logger.info("Got transfer")
         return api_response
@@ -435,6 +513,7 @@ def create_trade(api_client, quote):
     post_trade = PostTrade(quote.guid)
 
     try:
+        # https://docs.cybrid.xyz/reference/createtrade
         api_response = api_instance.create_trade(post_trade)
         logger.info("Created trade.")
         return api_response
@@ -452,6 +531,7 @@ def get_trade(api_client, guid):
     api_instance = TradesBankApi(api_client)
 
     try:
+        # https://docs.cybrid.xyz/reference/gettrade
         api_response = api_instance.get_trade(guid)
         logger.info("Got trade")
         return api_response
@@ -509,6 +589,7 @@ def create_external_wallet(api_client, customer, asset):
     )
 
     try:
+        # https://docs.cybrid.xyz/reference/createexternalwallet
         external_wallet = api_instance.create_external_wallet(post_external_wallet=body)
         logger.info("Created external wallet.")
         return external_wallet
@@ -526,6 +607,7 @@ def get_external_wallet(api_client, guid):
     api_instance = ExternalWalletsBankApi(api_client)
 
     try:
+        # https://docs.cybrid.xyz/reference/getexternalwallet
         external_wallet = api_instance.get_external_wallet(guid)
         logger.info("Got external wallet")
         return external_wallet
@@ -547,7 +629,9 @@ def wait_for_external_wallet_completed(api_client, external_wallet):
         external_wallet = get_external_wallet(api_client, external_wallet.guid)
         external_wallet_state = external_wallet.state
     if external_wallet_state not in final_states:
-        raise BadResultError(f"External wallet has invalid state: {external_wallet_state}")
+        raise BadResultError(
+            f"External wallet has invalid state: {external_wallet_state}"
+        )
 
     logger.info(f"Trade successfully completed with state {external_wallet_state}")
 
@@ -556,6 +640,12 @@ def main():
     create_logging_handler()
     person = create_person()
     api_client = create_api_client()
+
+    #
+    # Get a handle to the bank
+    #
+
+    bank = get_bank(api_client)
 
     #
     # Create customer
@@ -575,8 +665,10 @@ def main():
     # Get bank fiat USD account
     #
 
-    bank_accounts = list_accounts(api_client, 'bank', 'fiat')
-    bank_fiat_usd_account = next(filter(lambda x: x.asset == 'USD', bank_accounts), None)
+    bank_accounts = list_accounts(api_client, "bank", "fiat")
+    bank_fiat_usd_account = next(
+        filter(lambda x: x.asset == "USD", bank_accounts), None
+    )
     if not bank_fiat_usd_account:
         raise BadResultError("Bank has no USD fiat bank account")
 
@@ -595,9 +687,15 @@ def main():
     fiat_book_transfer_quote = create_quote(
         api_client, customer, "book_transfer", "deposit", usd_quantity, asset="USD"
     )
-    transfer = create_transfer(api_client, fiat_book_transfer_quote, "book",
-                               source_platform_account=bank_fiat_usd_account,
-                               destination_platform_account=customer_fiat_usd_account)
+    transfer = create_transfer(
+        api_client,
+        fiat_book_transfer_quote,
+        "book",
+        source_platform_account=bank_fiat_usd_account,
+        destination_platform_account=customer_fiat_usd_account,
+        source_participant=bank,
+        destination_participant=customer,
+    )
 
     wait_for_transfer_completed(api_client, transfer)
 
@@ -637,7 +735,12 @@ def main():
         deliver_amount = 10_000
 
         quote = create_quote(
-            api_client, customer, "trading", "buy", deliver_amount=deliver_amount, symbol=f"{asset}-USD"
+            api_client,
+            customer,
+            "trading",
+            "buy",
+            deliver_amount=deliver_amount,
+            symbol=f"{asset}-USD",
         )
         trade = create_trade(api_client, quote)
 
@@ -646,15 +749,31 @@ def main():
         #
         # Transfer crypto
 
-        wait_for_expected_account_balance(api_client, crypto_accounts[asset], trade.receive_amount)
+        wait_for_expected_account_balance(
+            api_client, crypto_accounts[asset], trade.receive_amount
+        )
 
         crypto_account = get_account(api_client, crypto_accounts[asset].guid)
         crypto_balance = crypto_account.platform_balance
 
         external_wallet = get_external_wallet(api_client, crypto_wallets[asset].guid)
 
-        quote = create_quote(api_client, customer, 'crypto_transfer', 'withdrawal', deliver_amount=crypto_balance, asset=asset)
-        transfer = create_transfer(api_client, quote, 'crypto', external_wallet=external_wallet)
+        quote = create_quote(
+            api_client,
+            customer,
+            "crypto_transfer",
+            "withdrawal",
+            deliver_amount=crypto_balance,
+            asset=asset,
+        )
+        transfer = create_transfer(
+            api_client,
+            quote,
+            "crypto",
+            external_wallet=external_wallet,
+            source_participant=customer,
+            destination_participant=customer,
+        )
 
         wait_for_transfer_completed(api_client, transfer)
 
@@ -666,7 +785,9 @@ def main():
         crypto_account = get_account(api_client, crypto_accounts[asset].guid)
         crypto_balance = crypto_account.platform_balance
 
-        logger.info(f"Crypto {asset} account has the expected balance: {crypto_balance}")
+        logger.info(
+            f"Crypto {asset} account has the expected balance: {crypto_balance}"
+        )
 
     logger.info("Test has completed successfully!")
 
