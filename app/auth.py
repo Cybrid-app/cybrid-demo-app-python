@@ -1,5 +1,6 @@
-from config import Config
 import requests
+
+from config import Config
 
 AUTH_URL = f"{Config.URL_SCHEME}://id.{Config.BASE_URL}/oauth/token"
 
@@ -19,6 +20,17 @@ IDENTITY_VERIFICATIONS_SCOPES = [
     "identity_verifications:read",
     "identity_verifications:execute",
 ]
+DEPOSIT_ADDRESS_SCOPES = ["deposit_addresses:read", "deposit_addresses:execute"]
+DEPOSIT_BANK_ACCOUNT_SCOPES = [
+    "deposit_bank_accounts:read",
+    "deposit_bank_accounts:execute",
+]
+WORKFLOWS_SCOPES = ["workflows:read", "workflows:execute"]
+EXTERNAL_BANK_ACCOUNT_SCOPES = [
+    "external_bank_accounts:read",
+    "external_bank_accounts:execute",
+]
+COUNTERPARTY_SCOPES = ["counterparties:read", "counterparties:execute"]
 SCOPES = [
     *ACCOUNTS_SCOPES,
     *BANKS_SCOPES,
@@ -29,6 +41,11 @@ SCOPES = [
     *TRANSFERS_SCOPES,
     *EXTERNAL_WALLET_SCOPES,
     *IDENTITY_VERIFICATIONS_SCOPES,
+    *DEPOSIT_ADDRESS_SCOPES,
+    *DEPOSIT_BANK_ACCOUNT_SCOPES,
+    *WORKFLOWS_SCOPES,
+    *EXTERNAL_BANK_ACCOUNT_SCOPES,
+    *COUNTERPARTY_SCOPES,
 ]
 
 
