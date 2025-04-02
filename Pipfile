@@ -10,6 +10,9 @@ python_version = "3.13.1"
 cybrid-api-bank-python = "*"
 python-dotenv = "*"
 requests = "*"
+plaid-python = "*"
+faker = "*"
+faker-e164 = "*"
 
 [dev-packages]
 ruff = "*"
