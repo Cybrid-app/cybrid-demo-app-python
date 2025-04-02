@@ -72,6 +72,10 @@ def recipe_counterparty_payment(
     # payment from their trading account to a counterparty, the source is the customer and the
     # destination is the counterparty.
     #
+    # To enhance the responsiveness of your application to state changes, you can also register for
+    # and receive webhooks for transfer state changes See the article here:
+    # https://docs.cybrid.xyz/docs/webhooks.
+    #
 
     # Step 1: Initiate the transfer
     deposit_transfer = create_transfer(

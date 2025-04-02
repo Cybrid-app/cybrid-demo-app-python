@@ -46,6 +46,10 @@ def recipe_trade_for_usdc(
     # as well as the fee that we are charging for the trade. The fee should be shown to
     # the customer.
     #
+    # To enhance the responsiveness of your application to state changes, you can also register for
+    # and receive webhooks for trade state changes See the article here:
+    # https://docs.cybrid.xyz/docs/webhooks.
+    #
     # **Note:** Creating a quote is a _synchronous_ operation.
     #
     buy_quote = create_quote(

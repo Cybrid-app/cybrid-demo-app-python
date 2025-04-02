@@ -73,6 +73,10 @@ def recipe_off_ramping_usd(
     # funds from their bank account to their fiat account, the source and destination is
     # simply just the customer themselves.
     #
+    # To enhance the responsiveness of your application to state changes, you can also register for
+    # and receive webhooks for transfer state changes See the article here:
+    # https://docs.cybrid.xyz/docs/webhooks.
+    #
 
     # Step 1: Initiate the transfer, specifying the `payment_rail` as `rtp`
     deposit_transfer = create_transfer(
