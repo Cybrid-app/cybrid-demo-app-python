@@ -124,12 +124,12 @@
         },
         "cybrid-api-bank-python": {
             "hashes": [
-                "sha256:0c68d088e3293564bd793a8703eecf4fa3f9dbd24ff3e968482da1f28f03ac69",
-                "sha256:eae22f5e80a1dd4eb19ea04843cd7655d34701ee8ab9bc5673b351d3e24dacba"
+                "sha256:48a6a026eb0874b6c8ee379a86f27f9f8b4aae2c3f81c522e2428221936a8e88",
+                "sha256:ed57e6c91e2d6c893195367fe6b07d9243262daf2ae1760970b5bfb85dc04501"
             ],
             "index": "pypi",
             "markers": "python_version >= '3.6'",
-            "version": "==0.123.349"
+            "version": "==0.123.697"
         },
         "faker": {
             "hashes": [
@@ -221,11 +221,11 @@
         },
         "urllib3": {
             "hashes": [
-                "sha256:1cee9ad369867bfdbbb48b7dd50374c0967a0bb7710050facf0dd6911440e3df",
-                "sha256:f8c5449b3cf0861679ce7e0503c7b44b5ec981bec0d1d3795a07f1ba96f0204d"
+                "sha256:3fc47733c7e419d4bc3f6b3dc2b4f890bb743906a30d56ba4a5bfa4bbff92760",
+                "sha256:e6b01673c0fa6a13e374b50871808eb3bf7046c4b125b216f6bf1cc604cff0dc"
             ],
             "markers": "python_version >= '3.9'",
-            "version": "==2.3.0"
+            "version": "==2.5.0"
         }
     },
     "develop": {

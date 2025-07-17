@@ -14,6 +14,7 @@ from app.helpers.common import (
     create_identity_verification,
     IDENTITY_VERIFICATION_TYPE_COUNTERPARTY,
     IDENTITY_VERIFICATION_WATCHLISTS,
+    IDENTITY_VERIFICATION_EXPECTED_BEHAVIOUR_PASSED_IMMEDIATELY,
     wait_for_identity_verification,
     STATE_COMPLETED,
     get_identity_verification,
@@ -79,6 +80,10 @@ def recipe_create_counterparty(
         counterparty=counterparty,
         verification_type=IDENTITY_VERIFICATION_TYPE_COUNTERPARTY,
         verification_method=IDENTITY_VERIFICATION_WATCHLISTS,
+        # Expected behaviours is set here for demo purposes as this script is non-interactive
+        expected_behaviours=[
+            IDENTITY_VERIFICATION_EXPECTED_BEHAVIOUR_PASSED_IMMEDIATELY
+        ],
     )
 
     # Step 2: Wait for the identity verification to go into the `completed` state and chck
