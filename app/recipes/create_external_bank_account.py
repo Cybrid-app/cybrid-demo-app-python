@@ -48,7 +48,7 @@ def recipe_create_external_bank_account(
     #    read the `plaid_link_token` value (https://docs.cybrid.xyz/reference/getworkflow).
     # 3. Launch the Plaid SDK and pass it the `plaid_link_token` obtained in the previous step. Guide
     #    your customer through the Plaid experience. For help on launching the Plaid SDK see here:
-    #    https://docs.cybrid.xyz/docs/integrating-plaid.
+    #    https://docs.cybrid.xyz/docs/integrating-plaid-link.
     # 4. Capture the `plaid_public_token` and `metadata` in the `onSuccess()` callback from the Plaid
     #    Link SDK when your customer completes the Plaid Link flow.
     # 5. Create an external bank account (https://docs.cybrid.xyz/reference/createexternalbankaccount)

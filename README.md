@@ -29,6 +29,8 @@ The demo application requires API access to the Cybrid Sandbox.
 To get started in the Sandbox, register for an account at https://www.cybrid.xyz/access. 
 Once logged in, you will be prompted to name your Organization, create a Bank, and generate an API key pair.
 
+You can also setup a Plaid sandbox setup to run the full workflow. You can register for an account at https://dashboard.plaid.com/signup. Note that you'll need to be able to use the Link frontend SDK to complete the interactive verification setup step.
+
 ## Configuration
 
 The project comes with an example environment file that outlines the environment variables used by the application.
@@ -43,14 +45,15 @@ $ cp example.env .env
 Inside `.env`, configure the environment variables to point to your Bank and API application:
 
 1. Set the value of `BANK_GUID` to the GUID of your Sandbox Bank.
-2. Set the value of `APPLICATION_CLIENT_ID` and `APPLICATION_CLIENT_SECRET` to your generated API Client ID and Client Secret, respectively.
+2. Set the value of `BANK_CLIENT_ID` and `BANK_CLIENT_SECRET` to your generated Sandbox Bank API Client ID and Client Secret, respectively.
+3. Fill out the plaid secrets if you have a connected Plaid sandbox account. The workflow will quit early without these credentials.
 
 ## Execution
 
-Once your environment is configured, you can run the demo application by executing the Python file `app/main.py`:
+Once your environment is configured, you can run the demo application by executing the Python module:
 
 ```
-$ pipenv run python app/main.py
+$ pipenv run python -m app.main
 ```
 
 This will run the application, executing the buy flow. If the flow is successful, and the resulting BTC account reports the expected balance, the application will exit with a return code of `0`.
