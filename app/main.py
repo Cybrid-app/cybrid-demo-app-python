@@ -35,10 +35,25 @@ from app.recipes.off_ramping_usd import recipe_off_ramping_usd
 from app.recipes.off_ramping_usdc import recipe_off_ramping_usdc
 from app.recipes.p2p_transfer import recipe_p2p_transfer
 from app.recipes.trade_for_usdc import recipe_trade_for_usdc
-from helpers.exceptions import BadResultError
-from recipes.create_customer import recipe_create_individual_customer
+from app.recipes.create_customer import recipe_create_individual_customer
+from app.config import Config
 
 logger.setLevel(logging.INFO)
+
+
+def is_plaid_configured() -> bool:
+    """Check if Plaid credentials are configured."""
+    client_id = Config.PLAID_CLIENT_ID
+    secret = Config.PLAID_SANDBOX_SECRET
+    
+    if client_id is None or secret is None:
+        return False
+    
+    client_id = str(client_id).strip()
+    secret = str(secret).strip()
+    
+    # Reject if empty or if they're comments (start with #)
+    return bool(client_id and secret and not client_id.startswith('#') and not secret.startswith('#'))
 
 
 def main():
@@ -48,17 +63,11 @@ def main():
     # Get a handler to the API client
     api_client = create_api_client()
 
-    #
-    # Create a verified customer
-    #
-
+    logger.info("Creating verified individual customers...")
     customer1 = recipe_create_individual_customer(api_client)
     customer2 = recipe_create_individual_customer(api_client)
 
-    #
-    # Create accounts for the customer
-    #
-
+    logger.info("Creating accounts for customers...")
     customer1_accounts = recipe_create_accounts(
         api_client,
         customer1,
@@ -72,24 +81,23 @@ def main():
         crypto_asset=ASSET_CODE_USDC,
     )
 
-    #
-    # Add a verified external bank account to the customer
-    #
+    logger.info("Adding verified external bank account to customer (requires Plaid)...")
+    if not is_plaid_configured():
+        logger.error(
+            "Plaid credentials are required for the rest of this workflow. "
+            "Please set PLAID_CLIENT_ID and PLAID_SANDBOX_SECRET in your .env file."
+        )
+        logger.info("Exiting.")
+        return
 
     external_bank_account = recipe_create_external_bank_account(api_client, customer1)
 
-    #
-    # Deposit $100 USD to the customer's fiat account from their connected account
-    #
-
+    logger.info("Depositing $100 USD to customer's fiat account from connected account...")
     recipe_fund_fiat_account(
         api_client, customer1, customer1_accounts.fiat_account, external_bank_account
     )
 
-    #
-    # Convert $75 USD to USDC
-    #
-
+    logger.info("Converting $75 USD to USDC...")
     recipe_trade_for_usdc(
         api_client,
         customer1,
@@ -97,16 +105,10 @@ def main():
         customer1_accounts.trading_account,
     )
 
-    #
-    # Add an external wallet for the customer
-    #
-
+    logger.info("Adding external wallet for customer...")
     external_wallet = recipe_create_external_wallet(api_client, customer1)
 
-    #
-    # Off-ramp USDC to the customer's external wallet
-    #
-
+    logger.info("Off-ramping USDC to customer's external wallet...")
     recipe_off_ramping_usdc(
         api_client,
         customer1,
@@ -114,10 +116,7 @@ def main():
         external_wallet,
     )
 
-    #
-    # Off-ramp USD to the customer's verified external bank account
-    #
-
+    logger.info("Off-ramping USD to customer's verified external bank account...")
     recipe_off_ramping_usd(
         api_client,
         customer1,
@@ -125,28 +124,19 @@ def main():
         external_bank_account,
     )
 
-    #
-    # Create a verified counterparty
-    #
-
+    logger.info("Creating verified business counterparty...")
     counterparty = recipe_create_counterparty(
         api_client,
         customer1,
         business=create_us_business(),
     )
 
-    #
-    # Create accounts for the counterparty
-    #
-
+    logger.info("Creating accounts for counterparty...")
     counterparty_accounts = recipe_create_counterparty_accounts(
         api_client, counterparty
     )
 
-    #
-    # Execute a P2P transfer between two customers
-    #
-
+    logger.info("Executing P2P transfer between two customers...")
     recipe_p2p_transfer(
         api_client,
         customer1,
@@ -155,10 +145,7 @@ def main():
         customer2_accounts.fiat_account,
     )
 
-    #
-    # Execute a crypto payout to a counterparty
-    #
-
+    logger.info("Executing crypto payout to counterparty...")
     recipe_counterparty_payment(
         api_client,
         customer1,
